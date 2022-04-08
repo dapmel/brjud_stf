@@ -2,19 +2,22 @@
 
 All classes accept database parameters on instance for testing purposes.
 """
+from concurrent.futures import as_completed, ThreadPoolExecutor
 from datetime import date, datetime
 from typing import Generator, List, Tuple
-import concurrent.futures
 import logging
 import lxml.html
 import psycopg2 as pg
 import re
-
 from utils.funcs import requester, requester2
+from db_utils.db_config import config
+from db_utils.db_testing import db_testing
 import utils.params as params
 
-from db_utils.db_testing import db_testing
-from db_utils.db_config import config
+
+logging.basicConfig(
+    format="[%(asctime)s %(funcName)s():%(lineno)s]%(levelname)s: %(message)s",
+    datefmt="%H:%M:%S", level=logging.INFO)
 
 
 class SearchScraper:
@@ -27,7 +30,7 @@ class SearchScraper:
         manageable sizes.
         """
         logging.info("Initializing SearchScraper")
-        self.range_size: int = 2_000
+        self.range_size: int = 200
         self.db_params: dict = db_params if db_params is not None else config()
 
         logging.info("Checking database and table statuses.")
@@ -36,11 +39,13 @@ class SearchScraper:
         db_testing("stf_temp_incidents",
                    params.sql_temp_incidents_create_table, self.db_params)
 
+        self.errors: int = 0
+
     def calculate_scrap_range(self) -> None:
         """Calulate range of ids to be scraped.
 
-        The ``self.range_start`` is defined based on the latest range
-        scraped. If the log table is empty, start is set as 1.
+        ``self.range_start`` is defined based on the latest range scraped. If
+        the log table is empty, start is set as 1.
         """
         with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
             curs.execute(params.sql_log_searches_last_end)
@@ -59,31 +64,42 @@ class SearchScraper:
             search_html: lxml.html.HtmlElement = requester2(
                 params.search_url.format(num=id_stf))
         except lxml.etree.ParserError:
-            raise ValueError(f"Invalid id: {id_stf}.")
-        items: List[lxml.html.HtmlElement] = search_html.xpath(
-            "//table/tr")
-        with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
-            for item in items:
-                incidente: int = item.xpath(
-                    "./td[position()=1]/a/@href")[0].split("=")[1]
-                curs.execute(params.sql_temp_incidents_insert, (incidente,))
+            raise Exception(f"Invalid id: {id_stf}.")
+        items: List[lxml.html.HtmlElement] = search_html.xpath("//table/tr")
+
+        if len(items) > 0:
+            with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
+                for item in items:
+                    incidente: int = item.xpath(
+                        "./td[position()=1]/a/@href")[0].split("=")[1]
+                    curs.execute(params.sql_temp_incidents_insert,
+                                 (incidente, id_stf))
+        else:
+            self.errors += 1
 
     def start(self) -> bool:
-        """Trigger calculation of range, execute scraping pool."""
+        """Calculate range, run scraping pool, save range if successful.
+
+        Saves range in log table and returns ``True`` if at least one id within
+        the current search range returned a valid process incident. Returns
+        ``False`` otherwise.
+        """
         self.calculate_scrap_range()
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=24) as exec:
+        with ThreadPoolExecutor(max_workers=24) as exec:
             futures = (exec.submit(self.scrap_incidents, id)
                        for id in range(self.range_start, self.range_end))
-            for future in concurrent.futures.as_completed(futures):
+            for future in as_completed(futures):
                 future.result()
 
-        range_data: Tuple[int, int, date] = (
-            self.range_start, self.range_end, datetime.now().date())
-        with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
-            curs.execute(params.sql_log_searches_insert_range, range_data)
-
-        return True
+        if self.errors != self.range_size:
+            range_data: Tuple[int, int, date] = (
+                self.range_start, self.range_end, datetime.now().date())
+            with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
+                curs.execute(params.sql_log_searches_insert_range, range_data)
+            return True
+        else:
+            return False
 
 
 class ProcessScraper:
@@ -249,10 +265,17 @@ class ProcessScraper:
 
     def start(self) -> bool:
         """Scrap from incidents logs."""
-        with concurrent.futures.ThreadPoolExecutor(max_workers=24) as exec:
+        with ThreadPoolExecutor(max_workers=24) as exec:
             futures = (exec.submit(self.scrap_process, i)
                        for i in self.retrive_incidents())
-            for future in concurrent.futures.as_completed(futures):
+            for future in as_completed(futures):
                 future.result()
 
         return True
+
+
+if __name__ == "__main__":
+    search_scraper = SearchScraper()
+    status = True
+    while status:
+        status = search_scraper.start()

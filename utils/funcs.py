@@ -3,9 +3,7 @@ from datetime import datetime
 from urllib import request
 import lxml.html
 import time
-
 import requests
-
 import utils.params as params
 
 

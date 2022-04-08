@@ -14,7 +14,6 @@ diary_pdf_url = diary_root + "{pdf_uri}"
 diary_log_header = ("data", "incidente")
 diary_log_path_and_filename = "logs/diarios/{log_date}.csv"
 
-
 root_url = "http://portal.stf.jus.br/processos/"
 
 # RANGE SEARCH
@@ -47,27 +46,14 @@ sql_stf_data_create = """
 """
 sql_stf_data_insert_row = """
     INSERT INTO stf_data (
-        incidente,
-        numero_unico,
-        id_stf,
-        classe_processo_sigla,
-        data_protocolo,
-        meio_id,
-        tipo_id,
-        classe_processo,
-        partes,
-        assuntos,
-        orgao_origem,
-        origem,
-        numeros_origem,
-        scrap_date
+        incidente, numero_unico, id_stf, classe_processo_sigla,
+        data_protocolo, meio_id, tipo_id, classe_processo, partes,
+        assuntos, orgao_origem, origem, numeros_origem, scrap_date
     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (incidente) DO UPDATE
     SET (scrap_date) = ROW(EXCLUDED.scrap_date);
 """
-sql_stf_data_select = """
-    SELECT * FROM stf_data;
-"""
+sql_stf_data_select = """SELECT * FROM stf_data;"""
 # TODO ON CONFLICT
 
 # "stf_logs_diaries" table
@@ -77,24 +63,15 @@ sql_log_diaries_table = """
         scraped BOOLEAN NOT NULL
     );
 """
-sql_log_diaries_read = """
-    SELECT * FROM stf_logs_diaries
-    ORDER BY date DESC;
-"""
+sql_log_diaries_read = """SELECT * FROM stf_logs_diaries ORDER BY date DESC;"""
 sql_log_diaries_read_pending = """
-    SELECT * FROM stf_logs_diaries
-        WHERE scraped = false
-        ORDER BY date DESC;
+    SELECT * FROM stf_logs_diaries WHERE scraped = false ORDER BY date DESC;
 """
 sql_log_diaries_add_date = """
-    INSERT INTO stf_logs_diaries (
-        date, scraped
-    ) VALUES (%s, %s);
+    INSERT INTO stf_logs_diaries (date, scraped) VALUES (%s, %s);
 """
 sql_log_diaries_update_status = """
-    UPDATE stf_logs_diaries
-        SET scraped = %s
-        WHERE date = %s;
+    UPDATE stf_logs_diaries SET scraped = %s WHERE date = %s;
 """
 
 # "stf_logs_searches" table
@@ -107,8 +84,7 @@ sql_log_searches_table = """
     );
 """
 sql_log_searches_last_end = """
-    SELECT range_end FROM stf_logs_searches
-        ORDER BY range_end DESC LIMIT 1;
+    SELECT range_end FROM stf_logs_searches ORDER BY range_end DESC LIMIT 1;
 """
 sql_log_searches_insert_range = """
     INSERT INTO stf_logs_searches (
@@ -146,19 +122,18 @@ sql_temp_processes_ids_drop_table = """
 # INCIDENTS
 sql_temp_incidents_create_table = """
     CREATE TABLE IF NOT EXISTS stf_temp_incidents (
-        incident INT PRIMARY KEY
+        incident INT PRIMARY KEY,
+        id_stf INT
     );
 """
 sql_temp_incidents_read = """
     SELECT * FROM stf_temp_incidents;
 """
 sql_temp_incidents_insert = """
-    INSERT INTO stf_temp_incidents (incident) VALUES (%s)
+    INSERT INTO stf_temp_incidents (incident, id_stf) VALUES (%s, %s)
         ON CONFLICT (incident) DO NOTHING;
 """
 sql_temp_incidents_remove = """
     DELETE FROM stf_temp_incidents WHERE incident = %s;
 """
-sql_temp_incidents_drop_table = """
-    DROP TABLE stf_temp_incidents RESTRICT
-"""
+sql_temp_incidents_drop_table = """DROP TABLE stf_temp_incidents RESTRICT"""
