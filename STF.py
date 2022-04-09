@@ -4,7 +4,7 @@ All classes accept database parameters on instance for testing purposes.
 """
 from concurrent.futures import as_completed, ThreadPoolExecutor
 from datetime import date, datetime
-from typing import Generator, List, Tuple
+from typing import Generator, List, Literal, Tuple
 import logging
 import lxml.html
 import psycopg2 as pg
@@ -13,7 +13,6 @@ from utils.funcs import requester, requester2
 from db_utils.db_config import config
 from db_utils.db_testing import db_testing
 import utils.params as params
-
 
 logging.basicConfig(
     format="[%(asctime)s %(funcName)s():%(lineno)s]%(levelname)s: %(message)s",
@@ -24,82 +23,125 @@ class SearchScraper:
     """Scrap STF search."""
 
     def __init__(self, db_params: dict = None) -> None:
-        """Add db params, test database/tables.
-
-        A default increment of 2000 splits the logging of search scraping in
-        manageable sizes.
-        """
+        """Initiate state, test database and tables."""
         logging.info("Initializing SearchScraper")
-        self.range_size: int = 200
         self.db_params: dict = db_params if db_params is not None else config()
-
-        logging.info("Checking database and table statuses.")
-        db_testing("stf_logs_searches",
-                   params.sql_log_searches_table, self.db_params)
-        db_testing("stf_temp_incidents",
-                   params.sql_temp_incidents_create_table, self.db_params)
-
-        self.errors: int = 0
-
-    def calculate_scrap_range(self) -> None:
-        """Calulate range of ids to be scraped.
-
-        ``self.range_start`` is defined based on the latest range scraped. If
-        the log table is empty, start is set as 1.
-        """
-        with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
-            curs.execute(params.sql_log_searches_last_end)
-            try:
-                last_end: int = curs.fetchone()[0]
-                self.range_start: int = last_end - 1
-                self.range_end: int = last_end + self.range_size
-            except TypeError:
-                self.range_start = 1
-                self.range_end = self.range_start + self.range_size
+        db_testing("stf_data", params.sql_stf_data_table, self.db_params)
+        db_testing("stf_scrap_log", params.sql_scrap_log_table, self.db_params)
+        self.step: int = 200
+        self.now: date = datetime.now().date()
 
     def scrap_incidents(self, id_stf: int) -> None:
         """Extract incidents from search pages and write to the database."""
-        logging.info(f"Scraping id {id_stf}")
+        logging.info(f"Searching id {id_stf}")
         try:
             search_html: lxml.html.HtmlElement = requester2(
                 params.search_url.format(num=id_stf))
         except lxml.etree.ParserError:
-            raise Exception(f"Invalid id: {id_stf}.")
+            raise Exception(f"Invalid id_stf: {id_stf}.")
         items: List[lxml.html.HtmlElement] = search_html.xpath("//table/tr")
 
-        if len(items) > 0:
-            with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
-                for item in items:
-                    incidente: int = item.xpath(
-                        "./td[position()=1]/a/@href")[0].split("=")[1]
-                    curs.execute(params.sql_temp_incidents_insert,
-                                 (incidente, id_stf))
-        else:
-            self.errors += 1
+        if len(items) == 0:
+            return
+        with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
+            for item in items:
+                classe_processo_sigla: str = item.xpath(
+                    "./td[position()=1]/a/text()")[0].split(" ")[0]
+                # Only parse processes with given self.code
+                if self.code is not None \
+                        and classe_processo_sigla != self.code:
+                    continue
 
-    def start(self) -> bool:
-        """Calculate range, run scraping pool, save range if successful.
+                incidente: int = item.xpath(
+                    "./td[position()=1]/a/@href")[0].split("=")[1]
+                numero_unico: str = item.xpath("./td[position()=2]/text()")[0]\
+                    .replace(".", "").replace("-", "")
+                # Postgres formats this date string automatically
+                data_protocolo: str = item.xpath(
+                    "./td[position()=3]/text()")[0]
 
-        Saves range in log table and returns ``True`` if at least one id within
-        the current search range returned a valid process incident. Returns
-        ``False`` otherwise.
+                meio: str = item.xpath("./td[position()=4]/text()")[0]
+                if meio == "Físico":
+                    meio_id: int = 1
+                elif meio == "Eletrônico":
+                    meio_id = 2
+                else:
+                    raise ValueError(f"Unknown 'meio':{meio}")
+
+                tipo: str = item.xpath("./td[position()=5]/text()")[0]
+                if tipo == "Público":
+                    tipo_id: int = 1
+                elif tipo == "Segredo de Justiça":
+                    tipo_id = 2
+                elif tipo == "Sigiloso":
+                    tipo_id = 3
+                else:
+                    raise ValueError(f"Unknown 'tipo':{tipo}")
+
+                # Scrap log table
+                curs.execute(params.sql_scrap_log_insert,
+                             (classe_processo_sigla, id_stf, self.now))
+                conn.commit()
+
+                # Data table
+                curs.execute(params.sql_stf_data_insert_min, (
+                    incidente, numero_unico, id_stf, classe_processo_sigla,
+                    data_protocolo, meio_id, tipo_id, self.now))
+                conn.commit()
+
+    def calc_start(self, mode: Literal["min", "max", "code"]) -> int:
+        """Calculate starting id."""
+        if mode == 'full':
+            # Start from the beginning
+            return 1
+
+        with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
+            if mode == "max":
+                curs.execute(params.sql_scrap_log_select_highest)
+            elif mode == "min":
+                curs.execute(params.sql_scrap_log_select_lowest)
+            elif mode == "code":
+                curs.execute(params.sql_scrap_log_select_code, (self.code,))
+
+            data: List[Tuple[int]] = curs.fetchall()
+            try:
+                return data[0][0]
+            except IndexError:
+                # Table is empty
+                return 1
+
+    def start(self, *,
+              mode: Literal["min", "max", "code"],
+              code: str = None) -> bool:
+        """Calculate start id, run scrap pool and check retrieved data.
+
+        There are three modes available to extract data from STF search:
+        ``max`` starts from the highest id scraped,
+        ``min`` starts from the lowest id scraped, and
+        ``code`` starts from the highest id scraped of a given code.
+
+        Use ``max`` mode if this is the first run.
         """
-        self.calculate_scrap_range()
+        self.code = code
+        if mode == "code" and self.code is None:
+            raise ValueError(
+                "'sigla' parameter must not be None on 'code' mode.")
 
+        start: int = self.calc_start(mode)
+        ids = range(start, start+self.step)
         with ThreadPoolExecutor(max_workers=24) as exec:
             futures = (exec.submit(self.scrap_incidents, id)
-                       for id in range(self.range_start, self.range_end))
+                       for id in ids)
             for future in as_completed(futures):
                 future.result()
 
-        if self.errors != self.range_size:
-            range_data: Tuple[int, int, date] = (
-                self.range_start, self.range_end, datetime.now().date())
-            with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
-                curs.execute(params.sql_log_searches_insert_range, range_data)
-            return True
-        else:
+        after_update: int = self.calc_start(mode)
+        if after_update == start:
+            # No ids found within range
+            logging.info("No new ids found in current id range. Done.")
             return False
+        else:
+            return True
 
 
 class ProcessScraper:
@@ -277,5 +319,6 @@ class ProcessScraper:
 if __name__ == "__main__":
     search_scraper = SearchScraper()
     status = True
+    # Modes: 'max', 'min', 'code'
     while status:
-        status = search_scraper.start()
+        status = search_scraper.start(mode="max")
