@@ -43,6 +43,7 @@ sql_stf_data_table = """
         scrap_date DATE NOT NULL
     );
 """
+sql_stf_data_select_incidents = """SELECT incidente FROM stf_data;"""
 sql_stf_data_insert_min = """
     INSERT INTO stf_data (
         incidente, numero_unico, id_stf, classe_processo_sigla, data_protocolo,

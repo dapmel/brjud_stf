@@ -5,7 +5,7 @@ import psycopg2 as pg
 import pytest
 
 import STF
-import utils.params as stf_params
+import utils.params as params
 
 from db_utils.db_testing import db_testing
 
@@ -49,68 +49,49 @@ class TestSTFSearchScraper:
 
             # Create ``stf_temp_incidents`` table
             db_testing(
-                "stf_temp_incidents",
-                stf_params.sql_temp_incidents_create_table, db_params)
-
+                "stf_data", params.sql_stf_data_table, db_params)
+            db_testing("stf_scrap_log", params.sql_scrap_log_table, db_params)
             # Test if table now exists
             curs.execute("""
                 SELECT COUNT(*)
                     FROM information_schema.tables
-                    WHERE table_name = 'stf_temp_incidents';
+                    WHERE table_name = 'stf_data';
+                """)
+            assert curs.fetchone()[0]
+            curs.execute("""
+                SELECT COUNT(*)
+                    FROM information_schema.tables
+                    WHERE table_name = 'stf_scrap_log';
                 """)
             assert curs.fetchone()[0]
 
     def test_search_scraper(self):
         """Test STF search scraper."""
         scraper = STF.SearchScraper(db_params)
-        scraper.range_size = 1
+        # step = 1 would generate errors as the starting id would always be
+        # the same as the last id scraped
+        scraper.step = 2
 
         # The start method returns True on successes
-        status: bool = scraper.start()
+        status: bool = scraper.start(mode="max")
         assert status
 
     def test_search_logs(self):
-        """Check integrity of data in ``stf_logs_searches`` table."""
-        sql_log_searches: str = """SELECT * FROM stf_logs_searches;"""
-
-        # Check log format and size
+        """Check integrity of data in ``stf_scrap_log`` table."""
         with pg.connect(**db_params) as conn, conn.cursor() as curs:
-            curs.execute(sql_log_searches)
-            # Assert only one range was created
-            scrap_ranges: tuple = curs.fetchall()
-            assert len(scrap_ranges) == 1
+            curs.execute(params.sql_scrap_log_select_all)
+            data = curs.fetchall()
+            assert len(data) == 46
 
-            scrap_range: tuple = scrap_ranges[0]
-            range_start, range_end, scrap_date = scrap_range
-            # Check if range and scrap date were correct
-            assert range_start == 1
-            assert range_end == 2
-            assert scrap_date == self.today_date
-
-        # Check update of scrap_date
-        test_scrap_date: date = datetime(2030, 3, 3).date()
-        with pg.connect(**db_params) as conn, conn.cursor() as curs:
-            test_payload: tuple = (1, 2, test_scrap_date)
-            curs.execute(
-                stf_params.sql_log_searches_insert_range, test_payload)
-            conn.commit()
-            # Another "SELECT" is needed because "RETURNING" is not recomended
-            # on upsert operations: https://stackoverflow.com/a/42217872
-            curs.execute(sql_log_searches)
-            scrap_range: tuple = curs.fetchone()
-            # Check if new date is correct
-            assert scrap_range[2] == test_scrap_date
-
-    @pytest.mark.skip(reason="STF is blocking requests made from Github")
     def test_processes_data(self):
-        """Check integrity of data in ``stf_temp_incidents`` table."""
+        """Check integrity of data in ``stf_data`` table."""
         with pg.connect(**db_params) as conn, conn.cursor() as curs:
-            curs.execute(stf_params.sql_temp_incidents_read)
+            curs.execute(params.sql_stf_data_select_incidents)
             data_rows: List(tuple) = curs.fetchall()
-            # Assert that all 42 incidents with `id_stf` = 1 are scraped
-            assert len(data_rows) == 42
+            assert len(data_rows) == 78
 
 
+@pytest.mark.skip(reason="To be updated.")
 class TestSTFProcessScraper:
     """Test STF proccess scraper."""
 
