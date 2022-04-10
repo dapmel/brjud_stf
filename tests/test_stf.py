@@ -78,7 +78,8 @@ class TestSTFProcessScraper:
     def test_details_scraping(self):
         """Test quality of scraping."""
         test_item = ("1418401", "00003950519360010000", 3, "IF",
-                     "23/11/1936", 1, 1, "10/4/2022")
+                     datetime.strptime("23/11/1936", "%d/%m/%Y").date(), 1, 1,
+                     datetime.strptime("10/4/2022", "%d/%m/%Y").date())
 
         with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
             # Drop all existing tables
