@@ -35,11 +35,11 @@ sql_stf_data_table = """
         meio_id SMALLINT NOT NULL,
         tipo_id SMALLINT NOT NULL,
         classe_processo TEXT,
-        partes TEXT,
-        assuntos TEXT,
+        partes TEXT [],
+        assuntos TEXT [],
         orgao_origem TEXT,
         origem TEXT,
-        numeros_origem TEXT,
+        numeros_origem TEXT [],
         scrap_date DATE NOT NULL
     );
 """
@@ -122,7 +122,9 @@ sql_scrap_log_insert = """
 #         scraped BOOLEAN NOT NULL
 #     );
 # """
-# sql_log_diaries_read = """SELECT * FROM stf_logs_diaries ORDER BY date DESC;"""
+# sql_log_diaries_read = """
+#     SELECT * FROM stf_logs_diaries ORDER BY date DESC;
+# """
 # sql_log_diaries_read_pending = """
 #     SELECT * FROM stf_logs_diaries WHERE scraped = false ORDER BY date DESC;
 # """

@@ -243,11 +243,10 @@ class ProcessScraper:
 
         # Lists must be converted to strings before writing to DB for now
         with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
-            curs.execute(params.sql_stf_data_update,
-                         (self.classe_processo, str(self.partes),
-                          str(self.assuntos), self.orgao_origem, self.origem,
-                          str(self.numeros_origem), self.scrap_date,
-                          incidente))
+            payload = (self.classe_processo, self.partes, self.assuntos,
+                       self.orgao_origem, self.origem, self.numeros_origem,
+                       self.scrap_date, incidente)
+            curs.execute(params.sql_stf_data_update, payload)
             conn.commit()
 
     def retrive_incidents(self) -> Generator[int, None, None]:
@@ -269,10 +268,14 @@ class ProcessScraper:
 
 if __name__ == "__main__":
     search_scraper = SearchScraper()
-    status = True
-    # # Modes: 'max', 'min', 'code'
-    while status:
-        status = search_scraper.start(mode="max")
+    # status = True
+    # # # Modes: 'max', 'min', 'code'
+    # while status:
+    #     status = search_scraper.start(mode="max")
+
+    # TODO: This is temporary
+    search_scraper.step = 2
+    search_scraper.start(mode="max")
 
     process_scraper = ProcessScraper()
     process_scraper.start()
