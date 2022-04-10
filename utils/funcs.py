@@ -4,7 +4,10 @@ from urllib import request
 import lxml.html
 import time
 import requests
-import utils.params as params
+import yaml
+
+with open("utils/config.yml") as ymlfile:
+    cfg = yaml.safe_load(ymlfile)
 
 
 def requester(url: str, format_html: bool = True):
@@ -12,8 +15,9 @@ def requester(url: str, format_html: bool = True):
 
     Can return HTML objects or raw bytes.
     """
-    req: request.Request = request.Request(url, headers=params.headers)
-    res: str = request.urlopen(req, timeout=60).read()
+    req: request.Request = request.Request(
+        url, headers=cfg["requests"]["headers"])
+    res: str = request.urlopen(req, timeout=cfg["requests"]["timeout"]).read()
     if format_html:
         # Return an HTML object
         return lxml.html.fromstring(res)
@@ -30,11 +34,12 @@ def decoder(string):
 def requester2(url: str) -> lxml.html.HtmlElement:
     """Request and return HTML."""
     res: requests.models.Response = requests.get(
-        url, headers=params.headers, timeout=60)
+        url, headers=cfg["requests"]["headers"],
+        timeout=cfg["requests"]["timeout"])
     res_decoded: str = decoder(res.text)
     return lxml.html.fromstring(res_decoded)
 
 
 def today():
-    """Return today's date as a formatted string."""
+    """Return today"s date as a formatted string."""
     return datetime.fromtimestamp(time.time()).strftime("%Y%m%d")

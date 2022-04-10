@@ -1,0 +1,106 @@
+log:
+  format: "[%(asctime)s %(funcName)s():%(lineno)s]%(levelname)s: %(message)s"
+
+requests:
+  headers:
+    user-agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/97.0.4692.71 Safari/537.36
+  timeout: 60
+
+urls:
+  search: http://portal.stf.jus.br/processos/listarProcessos.asp?classe=&numeroProcesso={num}
+  details:
+    process: http://portal.stf.jus.br/processos/detalhe.asp?incidente={incidente}
+    parties: http://portal.stf.jus.br/processos/abaPartes.asp?incidente={incidente}
+    infos: http://portal.stf.jus.br/processos/abaInformacoes.asp?incidente={incidente}
+
+sql:
+  data:
+    create: >-
+      CREATE TABLE IF NOT EXISTS stf_data (
+        incidente INTEGER PRIMARY KEY,
+        numero_unico TEXT,
+        id_stf INTEGER NOT NULL,
+        classe_processo_sigla TEXT NOT NULL,
+        data_protocolo DATE NOT NULL,
+        meio_id SMALLINT NOT NULL,
+        tipo_id SMALLINT NOT NULL,
+        classe_processo TEXT,
+        partes TEXT [],
+        assuntos TEXT [],
+        orgao_origem TEXT,
+        origem TEXT,
+        numeros_origem TEXT [],
+        scrap_date DATE NOT NULL
+      );
+    select:
+      all: SELECT * FROM stf_data;
+      all_incidents: SELECT incidente FROM stf_data;
+      incomplete: >-
+        SELECT incidente FROM stf_data
+          WHERE classe_processo IS NULL
+            AND partes IS NULL
+            AND assuntos IS NULL
+            AND orgao_origem IS NULL
+            AND origem IS NULL;
+    insert: >-
+      INSERT INTO stf_data (
+        incidente, numero_unico, id_stf, classe_processo_sigla,
+        data_protocolo, meio_id, tipo_id, scrap_date
+      ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+      ON CONFLICT (incidente) DO NOTHING;
+    update: >-
+      UPDATE stf_data
+      SET classe_processo = %s,
+        partes = %s,
+        assuntos = %s,
+        orgao_origem = %s,
+        origem = %s,
+        numeros_origem = %s,
+        scrap_date = %s
+      WHERE incidente = %s;
+  scrap_log:
+    create: >-
+      CREATE TABLE IF NOT EXISTS stf_scrap_log (
+        classe_processo_sigla TEXT PRIMARY KEY,
+        last_id INTEGER NOT NULL,
+        scrap_date DATE NOT NULL
+      );
+    select:
+      all: SELECT classe_processo_sigla, last_id FROM stf_scrap_log;
+      id:
+        highest: SELECT last_id FROM stf_scrap_log ORDER BY last_id DESC LIMIT 1;
+        lowest: SELECT last_id FROM stf_scrap_log ORDER BY last_id ASC LIMIT 1;
+      code: >-
+        SELECT last_id
+          FROM stf_scrap_log
+          WHERE classe_processo_sigla = %s
+          ORDER BY last_id DESC LIMIT 1;
+    insert: >-
+      INSERT INTO stf_scrap_log (
+        classe_processo_sigla, last_id, scrap_date
+      ) VALUES (%s, %s, %s)
+      ON CONFLICT (classe_processo_sigla) DO UPDATE
+      SET (last_id) = ROW(EXCLUDED.last_id),
+        (scrap_date) = ROW(EXCLUDED.scrap_date)
+      WHERE EXCLUDED.last_id > stf_scrap_log.last_id;
+
+testing:
+  db_params:
+    host: localhost
+    database: jusdata_test
+    user: postgres
+    password: postgres
+  sql:
+    drop_all: >-
+      DO $$ DECLARE
+      r RECORD;
+      BEGIN
+      FOR r IN (SELECT tablename FROM pg_tables
+          WHERE schemaname = current_schema()) LOOP
+          EXECUTE 'DROP TABLE ' || quote_ident(r.tablename) || ' CASCADE';
+      END LOOP;
+      END $$;
+    find_table: >-
+      SELECT COUNT(*)
+        FROM information_schema.tables
+        WHERE table_name = %s;

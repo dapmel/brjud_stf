@@ -9,14 +9,16 @@ import logging
 import lxml.html
 import psycopg2 as pg
 import re
+import yaml
 from utils.funcs import requester, requester2
 from db_utils.db_config import config
 from db_utils.db_testing import db_testing
-import utils.params as params
+
+with open("utils/config.yml") as ymlfile:
+    cfg = yaml.safe_load(ymlfile)
 
 logging.basicConfig(
-    format="[%(asctime)s %(funcName)s():%(lineno)s]%(levelname)s: %(message)s",
-    datefmt="%H:%M:%S", level=logging.INFO)
+    format=cfg["log"]["format"], datefmt="%H:%M:%S", level=logging.INFO)
 
 
 class SearchScraper:
@@ -26,8 +28,9 @@ class SearchScraper:
         """Initiate state, test database and tables."""
         logging.info("Initializing SearchScraper")
         self.db_params: dict = db_params if db_params is not None else config()
-        db_testing("stf_data", params.sql_stf_data_table, self.db_params)
-        db_testing("stf_scrap_log", params.sql_scrap_log_table, self.db_params)
+        db_testing("stf_data", cfg["sql"]["data"]["create"], self.db_params)
+        db_testing("stf_scrap_log", cfg["sql"]["scrap_log"]["create"],
+                   self.db_params)
         self.step: int = 200
         self.now: date = datetime.now().date()
 
@@ -36,7 +39,7 @@ class SearchScraper:
         logging.info(f"Searching id {id_stf}")
         try:
             search_html: lxml.html.HtmlElement = requester2(
-                params.search_url.format(num=id_stf))
+                cfg["urls"]["search"].format(num=id_stf))
         except lxml.etree.ParserError:
             raise Exception(f"Invalid id_stf: {id_stf}.")
         items: List[lxml.html.HtmlElement] = search_html.xpath("//table/tr")
@@ -79,12 +82,12 @@ class SearchScraper:
                     raise ValueError(f"Unknown 'tipo':{tipo}")
 
                 # Scrap log table
-                curs.execute(params.sql_scrap_log_insert,
+                curs.execute(cfg["sql"]["scrap_log"]["insert"],
                              (classe_processo_sigla, id_stf, self.now))
                 conn.commit()
 
                 # Data table
-                curs.execute(params.sql_stf_data_insert_min, (
+                curs.execute(cfg["sql"]["data"]["insert"], (
                     incidente, numero_unico, id_stf, classe_processo_sigla,
                     data_protocolo, meio_id, tipo_id, self.now))
                 conn.commit()
@@ -97,11 +100,13 @@ class SearchScraper:
 
         with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
             if mode == "max":
-                curs.execute(params.sql_scrap_log_select_highest)
+                curs.execute(
+                    cfg["sql"]["scrap_log"]["select"]["id"]["highest"])
             elif mode == "min":
-                curs.execute(params.sql_scrap_log_select_lowest)
+                curs.execute(cfg["sql"]["scrap_log"]["select"]["id"]["lowest"])
             elif mode == "code":
-                curs.execute(params.sql_scrap_log_select_code, (self.code,))
+                curs.execute(cfg["sql"]["scrap_log"]["select"]["code"],
+                             (self.code,))
 
             data: List[Tuple[int]] = curs.fetchall()
             try:
@@ -157,7 +162,7 @@ class ProcessScraper:
         self.numeros_origem: List[str] = []
         self.scrap_date: date = datetime.now().date()
         self.db_params: dict = db_params if db_params is not None else config()
-        db_testing("stf_data", params.sql_stf_data_table, self.db_params)
+        db_testing("stf_data", cfg["sql"]["data"]["create"], self.db_params)
 
     def decoder(self, string: str) -> str:
         """Decode from utf-8."""
@@ -167,7 +172,7 @@ class ProcessScraper:
         """Parse 'process' HTML."""
         # Dados gerais
         processo_html: lxml.html.HtmlElement = requester(
-            params.process_url.format(incidente=incidente))
+            cfg["urls"]["details"]["process"].format(incidente=incidente))
 
         try:
             self.classe_processo = processo_html.xpath(
@@ -179,7 +184,7 @@ class ProcessScraper:
         """Parse 'parts' HTML."""
         # Partes do processo
         partes_html: lxml.html.HtmlElement = requester(
-            params.parties_url.format(incidente=incidente))
+            cfg["urls"]["details"]["parties"].format(incidente=incidente))
         partes_list: List[lxml.html.HtmlElement] = partes_html.xpath(
             "//div[@id='todas-partes']/div[contains(@class, 'processo-partes')]"
         )
@@ -195,7 +200,7 @@ class ProcessScraper:
         """Parse 'incident' HTML."""
         # Detalhes do processo
         detalhes_html: lxml.html.HtmlElement = requester(
-            params.details_url.format(incidente=incidente))
+            cfg["urls"]["details"]["infos"].format(incidente=incidente))
         assuntos: List[lxml.html.HtmlElement] = detalhes_html.xpath(
             "//ul[@style='list-style:none;']/li")
         if len(assuntos):
@@ -246,13 +251,13 @@ class ProcessScraper:
             payload = (self.classe_processo, self.partes, self.assuntos,
                        self.orgao_origem, self.origem, self.numeros_origem,
                        self.scrap_date, incidente)
-            curs.execute(params.sql_stf_data_update, payload)
+            curs.execute(cfg["sql"]["data"]["update"], payload)
             conn.commit()
 
     def retrive_incidents(self) -> Generator[int, None, None]:
         """DB."""
         with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
-            curs.execute(params.sql_stf_data_select_incomplete)
+            curs.execute(cfg["sql"]["data"]["select"]["incomplete"])
             yield from curs
 
     def start(self) -> bool:
@@ -273,7 +278,7 @@ if __name__ == "__main__":
     # while status:
     #     status = search_scraper.start(mode="max")
 
-    # TODO: This is temporary
+    # # TODO: This is temporary
     search_scraper.step = 2
     search_scraper.start(mode="max")
 
