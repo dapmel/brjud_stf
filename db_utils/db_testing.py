@@ -38,7 +38,8 @@ def db_testing(table_name, sql, db_params=None):
         """Create a table with a given SQL."""
         with pg.connect(**db_params) as conn, conn.cursor() as curs:
             curs.execute(sql)
-            # commit the changes
+            conn.commit()
+            curs.execute("SET datestyle = dmy;")
             conn.commit()
 
     test_db_connection()
