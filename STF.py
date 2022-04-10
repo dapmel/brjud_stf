@@ -149,13 +149,6 @@ class ProcessScraper:
 
     def __init__(self, db_params: dict = None):
         """Initialize state, test ``stf_data`` table."""
-        self.numero_unico: str = ""
-        self.id_stf: int = 0
-        self.incidente: int = 0
-        self.classe_processo_sigla: str = ""
-        self.data_protocolo: date = datetime(1400, 1, 1).date()
-        self.meio_id: int = 0
-        self.tipo_id: int = 0
         self.classe_processo: str = ""
         self.partes: List[Tuple[str, str]] = []
         self.assuntos: List[str] = []
@@ -163,57 +156,18 @@ class ProcessScraper:
         self.origem: str = ""
         self.numeros_origem: List[str] = []
         self.scrap_date: date = datetime.now().date()
-
-        if db_params:
-            self.db_params: dict = db_params
-        else:
-            self.db_params = config()
-
-        db_testing("stf_data", params.sql_stf_data_create, self.db_params)
+        self.db_params: dict = db_params if db_params is not None else config()
+        db_testing("stf_data", params.sql_stf_data_table, self.db_params)
 
     def decoder(self, string: str) -> str:
         """Decode from utf-8."""
         return string.encode("iso-8859-1").decode("utf-8")
 
-    def _parse_process(self) -> None:
+    def _parse_process(self, incidente: int) -> None:
         """Parse 'process' HTML."""
         # Dados gerais
         processo_html: lxml.html.HtmlElement = requester(
-            params.process_url.format(incidente=self.incidente))
-
-        self.classe_processo_sigla, self.id_stf = processo_html.xpath(
-            "//input[@id='classe-numero-processo']/@value"
-        )[0].split(" ")
-
-        # overwrite empty ids
-        if self.id_stf == "":
-            self.id_stf = 0
-
-        self.numero_unico = (
-            processo_html.xpath("//div[@class='processo-rotulo']/text()")[0]
-            .replace("Número Único: ", "").replace("-", "").replace(".", ""))
-        if self.numero_unico == "Sem número único":
-            self.numero_unico = "0"
-
-        meio_tipo_div: lxml.html.HtmlElement = processo_html.xpath(
-            "//div[contains(@class, 'processo-titulo')]/div")[0]
-        meio: str = meio_tipo_div.xpath("./span[position()=1]/text()")[0]
-        if "Eletrônico" in meio:
-            self.meio_id = 1
-        elif "Físico" in meio:
-            self.meio_id = 2
-        else:
-            raise ValueError(f"Unexpected 'meio' value: {meio}.")
-
-        tipo: str = meio_tipo_div.xpath("./span[position()=2]/text()")[0]
-        if tipo == "Público":
-            self.tipo_id = 1
-        elif tipo == "Segredo de Justiça":
-            self.tipo_id = 2
-        elif tipo == "Sigiloso":
-            self.tipo_id = 3
-        else:
-            raise ValueError(f"Unexpected 'tipo' value: {tipo}.")
+            params.process_url.format(incidente=incidente))
 
         try:
             self.classe_processo = processo_html.xpath(
@@ -221,11 +175,11 @@ class ProcessScraper:
         except IndexError:
             self.classe_processo = ""
 
-    def _parse_parts(self) -> None:
+    def _parse_parts(self, incidente: int) -> None:
         """Parse 'parts' HTML."""
         # Partes do processo
         partes_html: lxml.html.HtmlElement = requester(
-            params.parties_url.format(incidente=self.incidente))
+            params.parties_url.format(incidente=incidente))
         partes_list: List[lxml.html.HtmlElement] = partes_html.xpath(
             "//div[@id='todas-partes']/div[contains(@class, 'processo-partes')]"
         )
@@ -237,11 +191,11 @@ class ProcessScraper:
                     "./div[@class='nome-parte']/text()")[0])
                 self.partes.append((tipo, nome))
 
-    def _parse_incident(self) -> None:
+    def _parse_incident(self, incidente: int) -> None:
         """Parse 'incident' HTML."""
         # Detalhes do processo
         detalhes_html: lxml.html.HtmlElement = requester(
-            params.details_url.format(incidente=self.incidente))
+            params.details_url.format(incidente=incidente))
         assuntos: List[lxml.html.HtmlElement] = detalhes_html.xpath(
             "//ul[@style='list-style:none;']/li")
         if len(assuntos):
@@ -277,38 +231,35 @@ class ProcessScraper:
                             .strip()) == "Número de Origem:":
                 nums = self.decoder(item.getnext().xpath("text()")[0])
                 self.numeros_origem = re.sub(r"[\n\t\s]*", "", nums).split(",")
+                if(len(self.numeros_origem[0])) == 0:
+                    self.numeros_origem = []
 
-    def scrap_process(self, incidente: tuple) -> None:
+    def scrap_process(self, incidente: int) -> None:
         """Scrap a process and save parsed data."""
-        self.incidente = incidente[0]
-        logging.info(f"Saving details from {self.incidente}")
-
-        self._parse_process()
-        self._parse_parts()
-        self._parse_incident()
+        logging.info(f"Saving details from {incidente}")
+        self._parse_process(incidente)
+        self._parse_parts(incidente)
+        self._parse_incident(incidente)
 
         # Lists must be converted to strings before writing to DB for now
-        payload = (self.incidente, self.numero_unico, self.id_stf,
-                   self.classe_processo_sigla, self.data_protocolo,
-                   self.meio_id, self.tipo_id, self.classe_processo,
-                   str(self.partes), str(self.assuntos), self.orgao_origem,
-                   self.origem, str(self.numeros_origem), self.scrap_date)
-
         with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
-            curs.execute(params.sql_stf_data_insert_row, payload)
-            curs.execute(params.sql_temp_incidents_remove, incidente)
+            curs.execute(params.sql_stf_data_update,
+                         (self.classe_processo, str(self.partes),
+                          str(self.assuntos), self.orgao_origem, self.origem,
+                          str(self.numeros_origem), self.scrap_date,
+                          incidente))
             conn.commit()
 
     def retrive_incidents(self) -> Generator[int, None, None]:
         """DB."""
         with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
-            curs.execute(params.sql_temp_incidents_read)
+            curs.execute(params.sql_stf_data_select_incomplete)
             yield from curs
 
     def start(self) -> bool:
         """Scrap from incidents logs."""
         with ThreadPoolExecutor(max_workers=24) as exec:
-            futures = (exec.submit(self.scrap_process, i)
+            futures = (exec.submit(self.scrap_process, i[0])
                        for i in self.retrive_incidents())
             for future in as_completed(futures):
                 future.result()
@@ -319,6 +270,9 @@ class ProcessScraper:
 if __name__ == "__main__":
     search_scraper = SearchScraper()
     status = True
-    # Modes: 'max', 'min', 'code'
+    # # Modes: 'max', 'min', 'code'
     while status:
         status = search_scraper.start(mode="max")
+
+    process_scraper = ProcessScraper()
+    process_scraper.start()

@@ -44,13 +44,31 @@ sql_stf_data_table = """
     );
 """
 sql_stf_data_select_incidents = """SELECT incidente FROM stf_data;"""
+sql_stf_data_select_incomplete = """
+    SELECT incidente FROM stf_data
+        WHERE classe_processo IS NULL
+            AND partes IS NULL
+            AND assuntos IS NULL
+            AND orgao_origem IS NULL
+            AND origem IS NULL;
+"""
 sql_stf_data_insert_min = """
     INSERT INTO stf_data (
         incidente, numero_unico, id_stf, classe_processo_sigla, data_protocolo,
         meio_id, tipo_id, scrap_date
     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-    ON CONFLICT (incidente) DO UPDATE
-    SET (scrap_date) = ROW(EXCLUDED.scrap_date);
+    ON CONFLICT (incidente) DO NOTHING;
+"""
+sql_stf_data_update = """
+    UPDATE stf_data
+    SET classe_processo = %s,
+        partes = %s,
+        assuntos = %s,
+        orgao_origem = %s,
+        origem = %s,
+        numeros_origem = %s,
+        scrap_date = %s
+    WHERE incidente = %s;
 """
 sql_stf_data_insert_row = """
     INSERT INTO stf_data (
