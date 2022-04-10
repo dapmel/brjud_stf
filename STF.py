@@ -85,7 +85,6 @@ class SearchScraper:
                 curs.execute(cfg["sql"]["scrap_log"]["insert"],
                              (classe_processo_sigla, id_stf, self.now))
                 conn.commit()
-
                 # Data table
                 curs.execute(cfg["sql"]["data"]["insert"], (
                     incidente, numero_unico, id_stf, classe_processo_sigla,

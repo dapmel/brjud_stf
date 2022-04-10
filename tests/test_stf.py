@@ -31,15 +31,15 @@ class TestSTFSearchScraper:
             curs.execute(cfg["testing"]["sql"]["drop_all"])
             conn.commit()
 
-            # Create ``stf_temp_incidents`` table
+            # Create ``stf_data`` table and test its existence
             db_testing("stf_data", cfg["sql"]["data"]["create"],
                        self.db_params)
             curs.execute(cfg["testing"]["sql"]["find_table"], ("stf_data",))
             assert curs.fetchone()[0]
 
+            # Create ``stf_scrap_log`` table  and test its existence
             db_testing("stf_scrap_log", cfg["sql"]["scrap_log"]["create"],
                        self.db_params)
-            # Test if table now exists
             curs.execute(cfg["testing"]["sql"]["find_table"],
                          ("stf_scrap_log",))
             assert curs.fetchone()[0]
@@ -70,40 +70,35 @@ class TestSTFSearchScraper:
             assert len(data_rows) == 78
 
 
-@pytest.mark.skip(reason="To be updated.")
 class TestSTFProcessScraper:
     """Test STF proccess scraper."""
 
     db_params = cfg["testing"]["db_params"]
 
-    def test_db_and_table(self):
-        """Reset database, create log table and insert test value."""
+    def test_details_scraping(self):
+        """Test quality of scraping."""
+        test_item = ("1418401", "00003950519360010000", 3, "IF",
+                     "23/11/1936", 1, 1, "10/4/2022")
+
         with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
             # Drop all existing tables
             curs.execute(cfg["testing"]["sql"]["drop_all"])
             conn.commit()
 
-            # Create ``stf_temp_incidents`` table
-            db_testing(
-                "stf_temp_incidents",
-                stf_params.sql_temp_incidents_create_table, self.db_params)
+        # Create ``stf_data`` table
+        db_testing("stf_data", cfg["sql"]["data"]["create"],
+                   self.db_params)
 
-            # Insertion of valid incident for testing
-            curs.execute(stf_params.sql_temp_incidents_insert, (1428339,))
-
-    @pytest.mark.skip(reason="STF is blocking requests made from Github")
-    def test_details_scraping(self):
-        """Test quality of scraping."""
-        scraper = STF.ProcessScraper(self.db_params)
-        status: bool = scraper.start()
-        assert status
+        process_scraper = STF.ProcessScraper(self.db_params)
 
         with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
-            curs.execute(stf_params.sql_stf_data_select)
+            # Insert testing item
+            curs.execute(cfg["sql"]["data"]["insert"], test_item)
+            conn.commit()
+
+            process_scraper.start()
+
+            # Check if all data was completed
+            curs.execute(cfg["sql"]["data"]["select"]["incomplete"])
             data = curs.fetchall()
-
-        # Only one incident must have been scraped
-        assert len(data) == 1
-
-        # Assert the correct incident was scraped
-        assert data[0][0] == 1428339
+            assert len(data) == 0
