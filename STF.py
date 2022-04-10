@@ -59,9 +59,11 @@ class SearchScraper:
                     "./td[position()=1]/a/@href")[0].split("=")[1]
                 numero_unico: str = item.xpath("./td[position()=2]/text()")[0]\
                     .replace(".", "").replace("-", "")
-                # Postgres formats this date string automatically
-                data_protocolo: str = item.xpath(
+
+                data_str: str = item.xpath(
                     "./td[position()=3]/text()")[0]
+                data_protocolo: date = datetime.strptime(
+                    data_str, "%d/%m/%Y").date()
 
                 meio: str = item.xpath("./td[position()=4]/text()")[0]
                 if meio == "Físico":
@@ -281,5 +283,5 @@ if __name__ == "__main__":
     search_scraper.step = 2
     search_scraper.start(mode="max")
 
-    process_scraper = ProcessScraper()
-    process_scraper.start()
+    # process_scraper = ProcessScraper()
+    # process_scraper.start()
