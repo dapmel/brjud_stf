@@ -2,7 +2,6 @@
 from datetime import date, datetime
 from typing import List
 import psycopg2 as pg
-import pytest
 import yaml
 
 from db_utils.db_testing import db_testing
