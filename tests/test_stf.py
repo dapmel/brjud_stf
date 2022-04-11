@@ -1,9 +1,13 @@
 """STF tests."""
 from datetime import date, datetime
+from re import A
 from typing import List
+import os
 import psycopg2 as pg
+import pytest
 import yaml
 
+from db_utils.db_config import config
 from db_utils.db_testing import db_testing
 import STF
 
@@ -11,18 +15,45 @@ with open("utils/config.yml") as ymlfile:
     cfg = yaml.safe_load(ymlfile)
 
 
-class TestSTFSearchScraper:
-    """Test STF Search Scraper."""
+class TestDBUtils:
+    """Test database utilities."""
 
-    db_params = cfg["testing"]["db_params"]
-    today_date: date = datetime.today().date()
+    def test_config_file_exception(self):
+        """Test validation of database configuration file."""
+        test_data: dict = {"db_params":
+                           {'host': 'localhost', 'database': 'jusdata_test',
+                            'user': 'postgres'}}
+        filename: str = "test_params.yml"
+        path_with_file = f"db_utils/{filename}"
+        with open(path_with_file, "w") as outfile:
+            yaml.dump(test_data, outfile, default_flow_style=False)
 
-    def test_database_and_search_log_table(self):
+        # Check test file creation
+        assert os.path.isfile(path_with_file)
+
+        with pytest.raises(Exception) as exc_info:
+            config(filename)
+        assert exc_info.value.args[0] == \
+            f"Section 'password' not found in '{filename}'"
+
+        os.remove(path_with_file)
+        # Check test file deletion
+        assert os.path.isfile(path_with_file) is False
+
+    def test_config_file_integrity(self):
+        """Test keys of validated database configuration file."""
+        params = config()
+        for key in ["host", "database", "user", "password"]:
+            assert key in params
+
+    def test_database_and_tables(self):
         """Test database availability and existence/creation of log table.
 
         Other tests will create tables as well. This test simply allows
         detailed testing of the general table creation mechanism if needed.
         """
+        self.db_params = cfg["testing"]["db_params"]
+
         assert pg.connect(**self.db_params)
 
         with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
@@ -42,6 +73,13 @@ class TestSTFSearchScraper:
             curs.execute(cfg["testing"]["sql"]["find_table"],
                          ("stf_scrap_log",))
             assert curs.fetchone()[0]
+
+
+class TestSTFSearchScraper:
+    """Test STF Search Scraper."""
+
+    db_params = cfg["testing"]["db_params"]
+    today_date: date = datetime.today().date()
 
     def test_search_scraper(self):
         """Test STF search scraper."""
