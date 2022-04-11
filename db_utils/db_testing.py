@@ -6,7 +6,7 @@ from db_config import config
 db_params = config()
 
 
-def db_testing(table_name, sql, db_params=None):
+def db_testing(table_name: str, sql: str, db_params: dict = None):
     """Test database connection and create table if it does not exist."""
     if not db_params:
         db_params = config()
@@ -17,11 +17,10 @@ def db_testing(table_name, sql, db_params=None):
         try:
             conn = pg.connect(**db_params)
             return conn
-        except (Exception, pg.DatabaseError) as error:
-            print(error)
-        return False
+        except (Exception, pg.DatabaseError):
+            return False
 
-    def test_table(table_name):
+    def test_table(table_name: str):
         """Test if table exists. Creates it if it does not."""
         with pg.connect(**db_params) as conn, conn.cursor() as curs:
             curs.execute(f"""
@@ -34,7 +33,7 @@ def db_testing(table_name, sql, db_params=None):
             return True
         return False
 
-    def create_table(sql):
+    def create_table(sql: str):
         """Create a table with a given SQL."""
         with pg.connect(**db_params) as conn, conn.cursor() as curs:
             curs.execute(sql)
@@ -45,8 +44,3 @@ def db_testing(table_name, sql, db_params=None):
     test_db_connection()
     if not test_table(table_name):
         create_table(sql)
-
-
-if __name__ == "__main__":
-    # This won't be run when imported
-    pass

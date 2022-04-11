@@ -95,10 +95,6 @@ class SearchScraper:
 
     def calc_start(self, mode: Literal["min", "max", "code"]) -> int:
         """Calculate starting id."""
-        if mode == 'full':
-            # Start from the beginning
-            return 1
-
         with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
             if mode == "max":
                 curs.execute(
