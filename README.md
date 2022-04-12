@@ -1,4 +1,5 @@
 [![codecov](https://codecov.io/gh/tohwiket/brjud_stf/branch/main/graph/badge.svg?token=TJ5KB97LTG)](https://codecov.io/gh/tohwiket/brjud_stf)
+![example workflow](https://github.com/tohwiket/brjud_stf/actions/workflows/stf.yml/badge.svg)
 
 # STF scrapper
 
