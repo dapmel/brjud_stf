@@ -1,0 +1,1 @@
+Contains utility functions and configuration parameters for the scrapers and tests.
