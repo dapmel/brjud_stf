@@ -1,5 +1,5 @@
 db_params:
   host: localhost
-  database: jusdata_test
+  database: jusdata
   user: postgres
   password: postgres
