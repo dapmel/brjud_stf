@@ -8,8 +8,8 @@ import psycopg2 as pg
 import re
 import yaml
 from utils.funcs import requester
-from db_utils.db_config import config
-from db_utils.db_testing import DBTester
+from db.db_config import config
+from db.db_testing import DBTester
 
 with open("utils/config.yml") as ymlfile:
     cfg = yaml.safe_load(ymlfile)

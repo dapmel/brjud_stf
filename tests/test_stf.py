@@ -6,8 +6,8 @@ import psycopg2 as pg
 import pytest
 import yaml
 
-from db_utils.db_config import config
-from db_utils.db_testing import DBTester
+from db.db_config import config
+from db.db_testing import DBTester
 import STF
 
 # Read yml config file
@@ -24,7 +24,7 @@ class TestDBUtils:
                            {'host': 'localhost', 'database': 'jusdata_test',
                             'user': 'postgres'}}
         filename: str = "test_params.yml"
-        path_with_file = f"db_utils/{filename}"
+        path_with_file = f"db/{filename}"
         with open(path_with_file, "w") as outfile:
             yaml.dump(test_data, outfile, default_flow_style=False)
 
