@@ -10,6 +10,7 @@ from db_utils.db_config import config
 from db_utils.db_testing import DBTester
 import STF
 
+# Read yml config file
 with open("utils/config.yml") as ymlfile:
     cfg = yaml.safe_load(ymlfile)
 
@@ -60,12 +61,12 @@ class TestDBUtils:
             curs.execute(cfg["testing"]["sql"]["drop_all"])
             conn.commit()
 
-            # Create ``stf_data`` table and test its existence
+            # Create 'stf_data' table and test its existence
             DBTester("stf_data", cfg["sql"]["data"]["create"], self.db_params)
             curs.execute(cfg["testing"]["sql"]["find_table"], ("stf_data",))
             assert curs.fetchone()[0]
 
-            # Create ``stf_scrap_log`` table  and test its existence
+            # Create 'stf_scrap_log' table  and test its existence
             DBTester("stf_scrap_log", cfg["sql"]["scrap_log"]["create"],
                      self.db_params)
             curs.execute(cfg["testing"]["sql"]["find_table"],
@@ -84,7 +85,7 @@ class TestSTFSearchScraper:
 
         This mode is being tested separately because it also serves to fill the
         testing table with real data to be tested.
-        Other methods will be tested on the last method of this class.
+        Other methods will be tested on the last method of the current class.
         """
         scraper = STF.SearchScraper(self.db_params)
         # step = 1 would generate errors as the starting id would always be
@@ -109,7 +110,7 @@ class TestSTFSearchScraper:
             assert len(data_rows) == 78
 
     def test_exceptions(self):
-        """Test special cases and exceptions conditions."""
+        """Test special cases and exceptions."""
         with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
             # Drop all existing tables
             curs.execute(cfg["testing"]["sql"]["drop_all"])
@@ -132,7 +133,7 @@ class TestSTFSearchScraper:
         assert not scraper.scrap_incidents(id_without_processes)
 
     def test_search_logs_modes(self):
-        """Test ``min`` and ``code modes."""
+        """Test ``min`` and ``code`` modes."""
         scraper = STF.SearchScraper(self.db_params)
         scraper.step = 2
         # On this context, a 'min' mode scrap must not find any process after a
@@ -155,30 +156,25 @@ class TestSTFProcessScraper:
 
     def test_details_scraping(self):
         """Test quality of scraping."""
-        # Dummy that has all fields
-        test_item: tuple = (2641263, "00002994520000010000", 1, "ADPF",
-                            datetime.strptime(
-                                "23/11/1936", "%d/%m/%Y").date(), 1, 1,
-                            datetime.strptime("10/4/2022", "%d/%m/%Y").date())
-
-        # Dummy has does not have 'numeros_origem'
-        test_item_2: tuple = (1406899, "00002994520000010000", 1, "ADPF",
-                              datetime.strptime(
-                                  "23/11/1936", "%d/%m/%Y").date(), 1, 1,
-                              datetime.strptime("10/4/2022", "%d/%m/%Y").date())
-
+        # Dummy which all fields can be filled during scraping
+        test_item: tuple = (
+            2641263, "00002994520000010000", 1, "ADPF",
+            datetime.strptime("23/11/1936", "%d/%m/%Y").date(), 1, 1,
+            datetime.strptime("10/4/2022", "%d/%m/%Y").date())
+        # Dummy that does not have 'numeros_origem'
+        test_item_2: tuple = (
+            1406899, "00002994520000010000", 1, "ADPF",
+            datetime.strptime("23/11/1936", "%d/%m/%Y").date(), 1, 1,
+            datetime.strptime("10/4/2022", "%d/%m/%Y").date())
         test_items: List(tuple) = [test_item, test_item_2]
-
         with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
             # Drop all existing tables
             curs.execute(cfg["testing"]["sql"]["drop_all"])
             conn.commit()
 
-        # Create ``stf_data`` table
+        # Create 'stf_data' table
         DBTester("stf_data", cfg["sql"]["data"]["create"], self.db_params)
-
         process_scraper = STF.ProcessScraper(self.db_params)
-
         with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
             # Insert testing items
             for test_item in test_items:
@@ -187,7 +183,7 @@ class TestSTFProcessScraper:
 
             process_scraper.start()
 
-            # Check if all data was completed
+            # Check if all processes were filled
             curs.execute(cfg["sql"]["data"]["select"]["incomplete"])
             data = curs.fetchall()
             assert len(data) == 0

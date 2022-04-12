@@ -1,7 +1,4 @@
-"""STF Scraper.
-
-All classes accept database parameters on instance for testing purposes.
-"""
+"""STF Scraper."""
 from concurrent.futures import as_completed, ThreadPoolExecutor
 from datetime import date, datetime
 from typing import Generator, List, Literal, Optional, Tuple
@@ -22,10 +19,17 @@ logging.basicConfig(
 
 
 class SearchScraper:
-    """Scrap STF search."""
+    """Scrap STF search based on a range of ids and write on database."""
 
     def __init__(self, db_params: dict = None) -> None:
-        """Initiate state, test database and tables."""
+        """Initiate state, test database and tables.
+
+        ``self.code`` keeps the code provided on ``code`` mode.
+
+        ``self.step`` defines how many processes must be scraped on each run.
+        A value around ``200`` is recomended to reduce requests made to the
+        server.
+        """
         logging.info("Initializing SearchScraper")
         self.db_params: dict = db_params if db_params is not None else config()
         DBTester("stf_data", cfg["sql"]["data"]["create"], self.db_params)
@@ -36,7 +40,18 @@ class SearchScraper:
         self.now: date = datetime.now().date()
 
     def scrap_incidents(self, id_stf: int) -> None:
-        """Extract incidents from search pages and write to the database."""
+        """Extract incidents from search pages and write to the database.
+
+        This method writes to two tables:
+
+        ``scrap_log`` keeps a record of the last id scraped of each process
+        type.
+
+        ``stf_data`` stores data of all processes. ``scrap_incidents`` will
+        write part of processes data to the database. The remaining columns
+        will be filled by ``ProcessScraper.start()``.
+        """
+        # Disable this to avoid logging each ID scraped
         logging.info(f"Searching id {id_stf}")
         try:
             search_html: lxml.html.HtmlElement = requester(
@@ -91,7 +106,7 @@ class SearchScraper:
                 conn.commit()
 
     def calc_start(self, mode: Literal["min", "max", "code"]) -> int:
-        """Calculate starting id."""
+        """Calculate starting id based on the scraping mode."""
         with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
             if mode == "max":
                 curs.execute(
@@ -128,12 +143,13 @@ class SearchScraper:
 
         start: int = self.calc_start(mode)
         ids = range(start, start+self.step)
-        with ThreadPoolExecutor(max_workers=24) as exec:
+        with ThreadPoolExecutor(cfg["threads"]["max_workers"]) as exec:
             futures = (exec.submit(self.scrap_incidents, id)
                        for id in ids)
             for future in as_completed(futures):
                 future.result()
 
+        # This can be used to stop recursion when no more data can be found
         after_update: int = self.calc_start(mode)
         if after_update == start:
             # No ids found within range
@@ -144,10 +160,14 @@ class SearchScraper:
 
 
 class ProcessScraper:
-    """Scrap processes data."""
+    """Scrap detailed processes data."""
 
     def __init__(self, db_params: dict = None):
-        """Initialize state, test ``stf_data`` table."""
+        """Initialize state, test ``stf_data`` table.
+
+        All fields required by the database are added to the state for a better
+        control of type hinting.
+        """
         self.classe_processo: str = ""
         self.partes: List[Tuple[str, str]] = []
         self.assuntos: List[str] = []
@@ -159,7 +179,7 @@ class ProcessScraper:
         DBTester("stf_data", cfg["sql"]["data"]["create"], self.db_params)
 
     def _parse_process(self, incidente: int) -> None:
-        """Parse 'process' HTML."""
+        """Parse 'process' page."""
         # Dados gerais
         processo_html: lxml.html.HtmlElement = requester(
             cfg["urls"]["details"]["process"].format(incidente=incidente))
@@ -169,7 +189,7 @@ class ProcessScraper:
         self.classe_processo = classe_processo if len(classe_processo) else ""
 
     def _parse_parts(self, incidente: int) -> None:
-        """Parse 'parts' HTML."""
+        """Parse 'parts' page."""
         # Partes do processo
         partes_html: lxml.html.HtmlElement = requester(
             cfg["urls"]["details"]["parties"].format(incidente=incidente))
@@ -183,7 +203,7 @@ class ProcessScraper:
                 self.partes.append((tipo, nome))
 
     def _parse_incident(self, incidente: int) -> None:
-        """Parse 'incident' HTML."""
+        """Parse 'incident' page."""
         # Detalhes do processo
         detalhes_html: lxml.html.HtmlElement = requester(
             cfg["urls"]["details"]["infos"].format(incidente=incidente))
@@ -199,6 +219,7 @@ class ProcessScraper:
 
         # A positional approach could be used but the tags positions might not
         # be the same across all processes.
+
         # Looks for tags that contain the 'Origem:' text
         for item in detalhes_html.xpath("//*[text()[contains(.,':')]]"):
             # If it is an exact match
@@ -208,10 +229,13 @@ class ProcessScraper:
                 if raw_date != "":
                     self.data_protocolo = datetime \
                         .strptime(raw_date, "%d/%m/%Y").date()
+
             if item.xpath("./text()")[0].strip() == "Órgão de Origem:":
                 self.orgao_origem = item.getnext().xpath("text()")[0].strip()
+
             if item.xpath("./text()")[0].strip() == "Origem:":
                 self.origem = item.getnext().xpath("text()")[0].strip()
+
             if item.xpath("./text()")[0].strip() == "Número de Origem:":
                 nums = item.getnext().xpath("text()")[0]
                 self.numeros_origem = re.sub(r"[\n\t\s]*", "", nums).split(",")
@@ -219,7 +243,7 @@ class ProcessScraper:
                     self.numeros_origem = []
 
     def scrap_process(self, incidente: int) -> None:
-        """Scrap a process and save parsed data."""
+        """Scrap process and save parsed data."""
         logging.info(f"Saving details from {incidente}")
         self._parse_process(incidente)
         self._parse_parts(incidente)
@@ -234,14 +258,14 @@ class ProcessScraper:
             conn.commit()
 
     def retrive_incidents(self) -> Generator[Tuple[int], None, None]:
-        """DB."""
+        """Yield incidents that don't have any detailed data from DB."""
         with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
             curs.execute(cfg["sql"]["data"]["select"]["incomplete"])
             yield from curs
 
     def start(self) -> bool:
-        """Scrap from incidents logs."""
-        with ThreadPoolExecutor(max_workers=24) as exec:
+        """Scrap data and fill incomplete processes."""
+        with ThreadPoolExecutor(cfg["threads"]["max_workers"]) as exec:
             futures = (exec.submit(self.scrap_process, i[0])
                        for i in self.retrive_incidents())
             for future in as_completed(futures):

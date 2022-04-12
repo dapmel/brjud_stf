@@ -6,6 +6,9 @@ requests:
     user-agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/97.0.4692.71 Safari/537.36
   timeout: 60
 
+threads:
+  max_workers: 24
+
 urls:
   search: http://portal.stf.jus.br/processos/listarProcessos.asp?classe=&numeroProcesso={num}
   details:
