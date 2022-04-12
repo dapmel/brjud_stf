@@ -1,147 +1,189 @@
 """STF tests."""
 from datetime import date, datetime
 from typing import List
+import os
 import psycopg2 as pg
 import pytest
+import yaml
 
+from db.db_config import config
+from db.db_testing import DBTester
 import STF
-import utils.params as stf_params
 
-from db_utils.db_testing import db_testing
-
-# Parameters of the test database
-db_params = {
-    "host": "localhost",
-    "database": "jusdata_test",
-    "user": "postgres",
-    "password": "postgres"
-}
-
-sql_drop_all_tables = """
-    DO $$ DECLARE
-    r RECORD;
-    BEGIN
-    FOR r IN (SELECT tablename FROM pg_tables
-        WHERE schemaname = current_schema()) LOOP
-        EXECUTE 'DROP TABLE ' || quote_ident(r.tablename) || ' CASCADE';
-    END LOOP;
-    END $$;
-"""
+# Read yml config file
+with open("utils/config.yml") as ymlfile:
+    cfg = yaml.safe_load(ymlfile)
 
 
-class TestSTFSearchScraper:
-    """Test STF Search Scraper."""
+class TestDBUtils:
+    """Test database utilities."""
 
-    today_date: date = datetime.today().date()
+    def test_config_file_exception(self):
+        """Test validation of database configuration file."""
+        test_data: dict = {"db_params":
+                           {'host': 'localhost', 'database': 'jusdata_test',
+                            'user': 'postgres'}}
+        filename: str = "test_params.yml"
+        path_with_file = f"db/{filename}"
+        with open(path_with_file, "w") as outfile:
+            yaml.dump(test_data, outfile, default_flow_style=False)
 
-    def test_database_and_search_log_table(self):
+        # Check test file creation
+        assert os.path.isfile(path_with_file)
+
+        with pytest.raises(Exception) as exc_info:
+            config(filename)
+        assert exc_info.value.args[0] == \
+            f"Section 'password' not found in '{filename}'"
+
+        os.remove(path_with_file)
+        # Check test file deletion
+        assert os.path.isfile(path_with_file) is False
+
+    def test_config_file_integrity(self):
+        """Test keys of validated database configuration file."""
+        params = config()
+        for key in ["host", "database", "user", "password"]:
+            assert key in params
+
+    def test_database_and_tables(self):
         """Test database availability and existence/creation of log table.
 
         Other tests will create tables as well. This test simply allows
         detailed testing of the general table creation mechanism if needed.
         """
-        assert pg.connect(**db_params)
+        self.db_params = cfg["testing"]["db_params"]
 
-        with pg.connect(**db_params) as conn, conn.cursor() as curs:
+        assert pg.connect(**self.db_params)
+
+        with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
             # Drop all existing tables
-            curs.execute(sql_drop_all_tables)
+            curs.execute(cfg["testing"]["sql"]["drop_all"])
             conn.commit()
 
-            # Create ``stf_temp_incidents`` table
-            db_testing(
-                "stf_temp_incidents",
-                stf_params.sql_temp_incidents_create_table, db_params)
-
-            # Test if table now exists
-            curs.execute("""
-                SELECT COUNT(*)
-                    FROM information_schema.tables
-                    WHERE table_name = 'stf_temp_incidents';
-                """)
+            # Create 'stf_data' table and test its existence
+            DBTester("stf_data", cfg["sql"]["data"]["create"], self.db_params)
+            curs.execute(cfg["testing"]["sql"]["find_table"], ("stf_data",))
             assert curs.fetchone()[0]
 
+            # Create 'stf_scrap_log' table  and test its existence
+            DBTester("stf_scrap_log", cfg["sql"]["scrap_log"]["create"],
+                     self.db_params)
+            curs.execute(cfg["testing"]["sql"]["find_table"],
+                         ("stf_scrap_log",))
+            assert curs.fetchone()[0]
+
+
+class TestSTFSearchScraper:
+    """Test STF Search Scraper."""
+
+    db_params = cfg["testing"]["db_params"]
+    today_date: date = datetime.today().date()
+
     def test_search_scraper(self):
-        """Test STF search scraper."""
-        scraper = STF.SearchScraper(db_params)
-        scraper.range_size = 1
+        """Test STF search scraper on ``max`` mode.
+
+        This mode is being tested separately because it also serves to fill the
+        testing table with real data to be tested.
+        Other methods will be tested on the last method of the current class.
+        """
+        scraper = STF.SearchScraper(self.db_params)
+        # step = 1 would generate errors as the starting id would always be
+        # the same as the last id scraped
+        scraper.step = 2
 
         # The start method returns True on successes
-        status: bool = scraper.start()
-        assert status
+        assert scraper.start(mode="max")
 
     def test_search_logs(self):
-        """Check integrity of data in ``stf_logs_searches`` table."""
-        sql_log_searches: str = """SELECT * FROM stf_logs_searches;"""
+        """Check integrity of data in ``stf_scrap_log`` table."""
+        with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
+            curs.execute(cfg["sql"]["scrap_log"]["select"]["all"])
+            data = curs.fetchall()
+            assert len(data) == 46
 
-        # Check log format and size
-        with pg.connect(**db_params) as conn, conn.cursor() as curs:
-            curs.execute(sql_log_searches)
-            # Assert only one range was created
-            scrap_ranges: tuple = curs.fetchall()
-            assert len(scrap_ranges) == 1
-
-            scrap_range: tuple = scrap_ranges[0]
-            range_start, range_end, scrap_date = scrap_range
-            # Check if range and scrap date were correct
-            assert range_start == 1
-            assert range_end == 2
-            assert scrap_date == self.today_date
-
-        # Check update of scrap_date
-        test_scrap_date: date = datetime(2030, 3, 3).date()
-        with pg.connect(**db_params) as conn, conn.cursor() as curs:
-            test_payload: tuple = (1, 2, test_scrap_date)
-            curs.execute(
-                stf_params.sql_log_searches_insert_range, test_payload)
-            conn.commit()
-            # Another "SELECT" is needed because "RETURNING" is not recomended
-            # on upsert operations: https://stackoverflow.com/a/42217872
-            curs.execute(sql_log_searches)
-            scrap_range: tuple = curs.fetchone()
-            # Check if new date is correct
-            assert scrap_range[2] == test_scrap_date
-
-    @pytest.mark.skip(reason="STF is blocking requests made from Github")
     def test_processes_data(self):
-        """Check integrity of data in ``stf_temp_incidents`` table."""
-        with pg.connect(**db_params) as conn, conn.cursor() as curs:
-            curs.execute(stf_params.sql_temp_incidents_read)
+        """Check integrity of data in ``stf_data`` table."""
+        with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
+            curs.execute(cfg["sql"]["data"]["select"]["all"])
             data_rows: List(tuple) = curs.fetchall()
-            # Assert that all 42 incidents with `id_stf` = 1 are scraped
-            assert len(data_rows) == 42
+            assert len(data_rows) == 78
+
+    def test_exceptions(self):
+        """Test special cases and exceptions."""
+        with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
+            # Drop all existing tables
+            curs.execute(cfg["testing"]["sql"]["drop_all"])
+            conn.commit()
+
+        scraper = STF.SearchScraper(self.db_params)
+
+        # Invalid ids must cause an error
+        with pytest.raises(Exception) as exc_info:
+            invalid_id = "invalid id"
+            scraper.scrap_incidents(invalid_id)
+        assert exc_info.value.args[0] == \
+            f"Invalid id_stf: {invalid_id}"
+
+        # Valid ids must return None
+        assert scraper.scrap_incidents(468) is None
+
+        # Ids without processes must not trigger a scraping attempt
+        id_without_processes = 0
+        assert not scraper.scrap_incidents(id_without_processes)
+
+    def test_search_logs_modes(self):
+        """Test ``min`` and ``code`` modes."""
+        scraper = STF.SearchScraper(self.db_params)
+        scraper.step = 2
+        # On this context, a 'min' mode scrap must not find any process after a
+        # 'max' mode scrap because the ids must have been already covered
+        assert not scraper.start(mode="min")
+
+        assert scraper.start(mode="code", code="Inq")
+
+        # 'code' mode must require a code
+        with pytest.raises(Exception) as exc_info:
+            scraper.start(mode="code")
+        assert exc_info.value.args[0] == \
+            "'code' parameter must not be None on 'code' mode."
 
 
 class TestSTFProcessScraper:
     """Test STF proccess scraper."""
 
-    def test_db_and_table(self):
-        """Reset database, create log table and insert test value."""
-        with pg.connect(**db_params) as conn, conn.cursor() as curs:
-            # Drop all existing tables
-            curs.execute(sql_drop_all_tables)
-            conn.commit()
+    db_params = cfg["testing"]["db_params"]
 
-            # Create ``stf_temp_incidents`` table
-            db_testing(
-                "stf_temp_incidents",
-                stf_params.sql_temp_incidents_create_table, db_params)
-
-            # Insertion of valid incident for testing
-            curs.execute(stf_params.sql_temp_incidents_insert, (1428339,))
-
-    @pytest.mark.skip(reason="STF is blocking requests made from Github")
     def test_details_scraping(self):
         """Test quality of scraping."""
-        scraper = STF.ProcessScraper(db_params)
-        status: bool = scraper.start()
-        assert status
+        # Dummy which all fields can be filled during scraping
+        test_item: tuple = (
+            2641263, "00002994520000010000", 1, "ADPF",
+            datetime.strptime("23/11/1936", "%d/%m/%Y").date(), 1, 1,
+            datetime.strptime("10/4/2022", "%d/%m/%Y").date())
+        # Dummy that does not have 'numeros_origem'
+        test_item_2: tuple = (
+            1406899, "00002994520000010000", 1, "ADPF",
+            datetime.strptime("23/11/1936", "%d/%m/%Y").date(), 1, 1,
+            datetime.strptime("10/4/2022", "%d/%m/%Y").date())
+        test_items: List(tuple) = [test_item, test_item_2]
+        with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
+            # Drop all existing tables
+            curs.execute(cfg["testing"]["sql"]["drop_all"])
+            conn.commit()
 
-        with pg.connect(**db_params) as conn, conn.cursor() as curs:
-            curs.execute(stf_params.sql_stf_data_select)
+        # Create 'stf_data' table
+        DBTester("stf_data", cfg["sql"]["data"]["create"], self.db_params)
+        process_scraper = STF.ProcessScraper(self.db_params)
+        with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
+            # Insert testing items
+            for test_item in test_items:
+                curs.execute(cfg["sql"]["data"]["insert"], test_item)
+                conn.commit()
+
+            process_scraper.start()
+
+            # Check if all processes were filled
+            curs.execute(cfg["sql"]["data"]["select"]["incomplete"])
             data = curs.fetchall()
-
-        # Only one incident must have been scraped
-        assert len(data) == 1
-
-        # Assert the correct incident was scraped
-        assert data[0][0] == 1428339
+            assert len(data) == 0
