@@ -169,7 +169,7 @@ class ProcessScraper:
 
         try:
             self.classe_processo = processo_html.xpath(
-                "//div[@class='card-processo']/div/div[contains(@class, 'processo-classe')]/text()")[0]
+                cfg["xpath"]["process"]["classe_processo"])[0]
         except IndexError:
             self.classe_processo = ""
 
@@ -179,8 +179,7 @@ class ProcessScraper:
         partes_html: lxml.html.HtmlElement = requester(
             cfg["urls"]["details"]["parties"].format(incidente=incidente))
         partes_list: List[lxml.html.HtmlElement] = partes_html.xpath(
-            "//div[@id='todas-partes']/div[contains(@class, 'processo-partes')]"
-        )
+            cfg["xpath"]["process"]["partes_list"])
         if len(partes_list):
             for parte in partes_list:
                 tipo: str = parte.xpath(
@@ -240,7 +239,7 @@ class ProcessScraper:
             curs.execute(cfg["sql"]["data"]["update"], payload)
             conn.commit()
 
-    def retrive_incidents(self) -> Generator[int, None, None]:
+    def retrive_incidents(self) -> Generator[Tuple[int], None, None]:
         """DB."""
         with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
             curs.execute(cfg["sql"]["data"]["select"]["incomplete"])

@@ -104,3 +104,8 @@ testing:
       SELECT COUNT(*)
         FROM information_schema.tables
         WHERE table_name = %s;
+
+xpath:
+  process:
+    classe_processo: //div[@class='card-processo']/div/div[contains(@class, 'processo-classe')]/text()
+    partes_list: //div[@id='todas-partes']/div[contains(@class, 'processo-partes')]
