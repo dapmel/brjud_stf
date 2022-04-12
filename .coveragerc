@@ -1,0 +1,4 @@
+[report]
+exclude_lines =
+    raise ValueError(f"Unknown 'meio':{meio}")
+    raise ValueError(f"Unknown 'tipo':{tipo}")

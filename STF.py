@@ -4,7 +4,7 @@ All classes accept database parameters on instance for testing purposes.
 """
 from concurrent.futures import as_completed, ThreadPoolExecutor
 from datetime import date, datetime
-from typing import Generator, List, Literal, Tuple
+from typing import Generator, List, Literal, Optional, Tuple
 import logging
 import lxml.html
 import psycopg2 as pg
@@ -31,6 +31,7 @@ class SearchScraper:
         DBTester("stf_data", cfg["sql"]["data"]["create"], self.db_params)
         DBTester("stf_scrap_log", cfg["sql"]["scrap_log"]["create"],
                  self.db_params)
+        self.code: Optional[str] = None
         self.step: int = 200
         self.now: date = datetime.now().date()
 
@@ -41,7 +42,7 @@ class SearchScraper:
             search_html: lxml.html.HtmlElement = requester(
                 cfg["urls"]["search"].format(num=id_stf))
         except lxml.etree.ParserError:
-            raise Exception(f"Invalid id_stf: {id_stf}.")
+            raise Exception(f"Invalid id_stf: {id_stf}")
         items: List[lxml.html.HtmlElement] = search_html.xpath("//table/tr")
 
         if len(items) == 0:
@@ -70,8 +71,6 @@ class SearchScraper:
                     meio_id: int = 1
                 elif meio == "Eletrônico":
                     meio_id = 2
-                else:
-                    raise ValueError(f"Unknown 'meio':{meio}")
 
                 tipo: str = item.xpath("./td[position()=5]/text()")[0]
                 if tipo == "Público":
@@ -80,8 +79,6 @@ class SearchScraper:
                     tipo_id = 2
                 elif tipo == "Sigiloso":
                     tipo_id = 3
-                else:
-                    raise ValueError(f"Unknown 'tipo':{tipo}")
 
                 # Scrap log table
                 curs.execute(cfg["sql"]["scrap_log"]["insert"],
@@ -127,7 +124,7 @@ class SearchScraper:
         self.code = code
         if mode == "code" and self.code is None:
             raise ValueError(
-                "'sigla' parameter must not be None on 'code' mode.")
+                "'code' parameter must not be None on 'code' mode.")
 
         start: int = self.calc_start(mode)
         ids = range(start, start+self.step)
@@ -167,11 +164,9 @@ class ProcessScraper:
         processo_html: lxml.html.HtmlElement = requester(
             cfg["urls"]["details"]["process"].format(incidente=incidente))
 
-        try:
-            self.classe_processo = processo_html.xpath(
-                cfg["xpath"]["process"]["classe_processo"])[0]
-        except IndexError:
-            self.classe_processo = ""
+        classe_processo: str = processo_html.xpath(
+            cfg["xpath"]["process"]["classe_processo"])
+        self.classe_processo = classe_processo if len(classe_processo) else ""
 
     def _parse_parts(self, incidente: int) -> None:
         """Parse 'parts' HTML."""
@@ -194,14 +189,15 @@ class ProcessScraper:
             cfg["urls"]["details"]["infos"].format(incidente=incidente))
         assuntos: List[lxml.html.HtmlElement] = detalhes_html.xpath(
             "//ul[@style='list-style:none;']/li")
+        print(assuntos)
         if len(assuntos):
             for assunto in assuntos:
+                print("HEHEHEHEHE")
                 assunto = assunto.xpath("text()")[0]
                 assunto_items: List[str] = assunto \
                     .replace("||", "|").split("|")
-                clean_assunto: str = "; ".join(assunto.strip()
-                                               for assunto in assunto_items)
-                self.assuntos.append(clean_assunto)
+                self.assuntos.append("; ".join(assunto.strip()
+                                               for assunto in assunto_items))
 
         # A positional approach could be used but the tags positions might not
         # be the same across all processes.

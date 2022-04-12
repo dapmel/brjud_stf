@@ -80,15 +80,19 @@ class TestSTFSearchScraper:
     today_date: date = datetime.today().date()
 
     def test_search_scraper(self):
-        """Test STF search scraper."""
+        """Test STF search scraper on ``max`` mode.
+
+        This mode is being tested separately because it also serves to fill the
+        testing table with real data to be tested.
+        Other methods will be tested on the last method of this class.
+        """
         scraper = STF.SearchScraper(self.db_params)
         # step = 1 would generate errors as the starting id would always be
         # the same as the last id scraped
         scraper.step = 2
 
         # The start method returns True on successes
-        status: bool = scraper.start(mode="max")
-        assert status
+        assert scraper.start(mode="max")
 
     def test_search_logs(self):
         """Check integrity of data in ``stf_scrap_log`` table."""
@@ -104,6 +108,45 @@ class TestSTFSearchScraper:
             data_rows: List(tuple) = curs.fetchall()
             assert len(data_rows) == 78
 
+    def test_exceptions(self):
+        """Test special cases and exceptions conditions."""
+        with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
+            # Drop all existing tables
+            curs.execute(cfg["testing"]["sql"]["drop_all"])
+            conn.commit()
+
+        scraper = STF.SearchScraper(self.db_params)
+
+        # Invalid ids must cause an error
+        with pytest.raises(Exception) as exc_info:
+            invalid_id = "invalid id"
+            scraper.scrap_incidents(invalid_id)
+        assert exc_info.value.args[0] == \
+            f"Invalid id_stf: {invalid_id}"
+
+        # Valid ids must return None
+        assert scraper.scrap_incidents(468) is None
+
+        # Ids without processes must not trigger a scraping attempt
+        id_without_processes = 0
+        assert not scraper.scrap_incidents(id_without_processes)
+
+    def test_search_logs_modes(self):
+        """Test ``min`` and ``code modes."""
+        scraper = STF.SearchScraper(self.db_params)
+        scraper.step = 2
+        # On this context, a 'min' mode scrap must not find any process after a
+        # 'max' mode scrap because the ids must have been already covered
+        assert not scraper.start(mode="min")
+
+        assert scraper.start(mode="code", code="Inq")
+
+        # 'code' mode must require a code
+        with pytest.raises(Exception) as exc_info:
+            scraper.start(mode="code")
+        assert exc_info.value.args[0] == \
+            "'code' parameter must not be None on 'code' mode."
+
 
 class TestSTFProcessScraper:
     """Test STF proccess scraper."""
@@ -112,9 +155,19 @@ class TestSTFProcessScraper:
 
     def test_details_scraping(self):
         """Test quality of scraping."""
-        test_item = ("1418401", "00003950519360010000", 3, "IF",
-                     datetime.strptime("23/11/1936", "%d/%m/%Y").date(), 1, 1,
-                     datetime.strptime("10/4/2022", "%d/%m/%Y").date())
+        # Dummy that has all fields
+        test_item: tuple = (2641263, "00002994520000010000", 1, "ADPF",
+                            datetime.strptime(
+                                "23/11/1936", "%d/%m/%Y").date(), 1, 1,
+                            datetime.strptime("10/4/2022", "%d/%m/%Y").date())
+
+        # Dummy has does not have 'numeros_origem'
+        test_item_2: tuple = (1406899, "00002994520000010000", 1, "ADPF",
+                              datetime.strptime(
+                                  "23/11/1936", "%d/%m/%Y").date(), 1, 1,
+                              datetime.strptime("10/4/2022", "%d/%m/%Y").date())
+
+        test_items: List(tuple) = [test_item, test_item_2]
 
         with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
             # Drop all existing tables
@@ -127,9 +180,10 @@ class TestSTFProcessScraper:
         process_scraper = STF.ProcessScraper(self.db_params)
 
         with pg.connect(**self.db_params) as conn, conn.cursor() as curs:
-            # Insert testing item
-            curs.execute(cfg["sql"]["data"]["insert"], test_item)
-            conn.commit()
+            # Insert testing items
+            for test_item in test_items:
+                curs.execute(cfg["sql"]["data"]["insert"], test_item)
+                conn.commit()
 
             process_scraper.start()
 
