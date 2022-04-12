@@ -189,10 +189,8 @@ class ProcessScraper:
             cfg["urls"]["details"]["infos"].format(incidente=incidente))
         assuntos: List[lxml.html.HtmlElement] = detalhes_html.xpath(
             "//ul[@style='list-style:none;']/li")
-        print(assuntos)
         if len(assuntos):
             for assunto in assuntos:
-                print("HEHEHEHEHE")
                 assunto = assunto.xpath("text()")[0]
                 assunto_items: List[str] = assunto \
                     .replace("||", "|").split("|")
