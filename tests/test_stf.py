@@ -1,6 +1,5 @@
 """STF tests."""
 from datetime import date, datetime
-from re import A
 from typing import List
 import os
 import psycopg2 as pg
@@ -8,7 +7,7 @@ import pytest
 import yaml
 
 from db_utils.db_config import config
-from db_utils.db_testing import db_testing
+from db_utils.db_testing import DBTester
 import STF
 
 with open("utils/config.yml") as ymlfile:
@@ -62,14 +61,13 @@ class TestDBUtils:
             conn.commit()
 
             # Create ``stf_data`` table and test its existence
-            db_testing("stf_data", cfg["sql"]["data"]["create"],
-                       self.db_params)
+            DBTester("stf_data", cfg["sql"]["data"]["create"], self.db_params)
             curs.execute(cfg["testing"]["sql"]["find_table"], ("stf_data",))
             assert curs.fetchone()[0]
 
             # Create ``stf_scrap_log`` table  and test its existence
-            db_testing("stf_scrap_log", cfg["sql"]["scrap_log"]["create"],
-                       self.db_params)
+            DBTester("stf_scrap_log", cfg["sql"]["scrap_log"]["create"],
+                     self.db_params)
             curs.execute(cfg["testing"]["sql"]["find_table"],
                          ("stf_scrap_log",))
             assert curs.fetchone()[0]
@@ -124,8 +122,7 @@ class TestSTFProcessScraper:
             conn.commit()
 
         # Create ``stf_data`` table
-        db_testing("stf_data", cfg["sql"]["data"]["create"],
-                   self.db_params)
+        DBTester("stf_data", cfg["sql"]["data"]["create"], self.db_params)
 
         process_scraper = STF.ProcessScraper(self.db_params)
 

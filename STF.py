@@ -12,7 +12,7 @@ import re
 import yaml
 from utils.funcs import requester, requester2
 from db_utils.db_config import config
-from db_utils.db_testing import db_testing
+from db_utils.db_testing import DBTester
 
 with open("utils/config.yml") as ymlfile:
     cfg = yaml.safe_load(ymlfile)
@@ -28,9 +28,9 @@ class SearchScraper:
         """Initiate state, test database and tables."""
         logging.info("Initializing SearchScraper")
         self.db_params: dict = db_params if db_params is not None else config()
-        db_testing("stf_data", cfg["sql"]["data"]["create"], self.db_params)
-        db_testing("stf_scrap_log", cfg["sql"]["scrap_log"]["create"],
-                   self.db_params)
+        DBTester("stf_data", cfg["sql"]["data"]["create"], self.db_params)
+        DBTester("stf_scrap_log", cfg["sql"]["scrap_log"]["create"],
+                 self.db_params)
         self.step: int = 200
         self.now: date = datetime.now().date()
 
@@ -159,7 +159,7 @@ class ProcessScraper:
         self.numeros_origem: List[str] = []
         self.scrap_date: date = datetime.now().date()
         self.db_params: dict = db_params if db_params is not None else config()
-        db_testing("stf_data", cfg["sql"]["data"]["create"], self.db_params)
+        DBTester("stf_data", cfg["sql"]["data"]["create"], self.db_params)
 
     def decoder(self, string: str) -> str:
         """Decode from utf-8."""
