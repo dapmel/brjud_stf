@@ -10,7 +10,7 @@ import lxml.html
 import psycopg2 as pg
 import re
 import yaml
-from utils.funcs import requester, requester2
+from utils.funcs import requester
 from db_utils.db_config import config
 from db_utils.db_testing import DBTester
 
@@ -38,7 +38,7 @@ class SearchScraper:
         """Extract incidents from search pages and write to the database."""
         logging.info(f"Searching id {id_stf}")
         try:
-            search_html: lxml.html.HtmlElement = requester2(
+            search_html: lxml.html.HtmlElement = requester(
                 cfg["urls"]["search"].format(num=id_stf))
         except lxml.etree.ParserError:
             raise Exception(f"Invalid id_stf: {id_stf}.")
@@ -161,10 +161,6 @@ class ProcessScraper:
         self.db_params: dict = db_params if db_params is not None else config()
         DBTester("stf_data", cfg["sql"]["data"]["create"], self.db_params)
 
-    def decoder(self, string: str) -> str:
-        """Decode from utf-8."""
-        return string.encode("iso-8859-1").decode("utf-8")
-
     def _parse_process(self, incidente: int) -> None:
         """Parse 'process' HTML."""
         # Dados gerais
@@ -187,10 +183,9 @@ class ProcessScraper:
         )
         if len(partes_list):
             for parte in partes_list:
-                tipo: str = self.decoder(parte.xpath(
-                    "./div[@class='detalhe-parte']/text()")[0])
-                nome: str = self.decoder(parte.xpath(
-                    "./div[@class='nome-parte']/text()")[0])
+                tipo: str = parte.xpath(
+                    "./div[@class='detalhe-parte']/text()")[0]
+                nome: str = parte.xpath("./div[@class='nome-parte']/text()")[0]
                 self.partes.append((tipo, nome))
 
     def _parse_incident(self, incidente: int) -> None:
@@ -207,31 +202,25 @@ class ProcessScraper:
                     .replace("||", "|").split("|")
                 clean_assunto: str = "; ".join(assunto.strip()
                                                for assunto in assunto_items)
-                self.assuntos.append(self.decoder(clean_assunto))
+                self.assuntos.append(clean_assunto)
 
         # A positional approach could be used but the tags positions might not
         # be the same across all processes.
         # Looks for tags that contain the 'Origem:' text
         for item in detalhes_html.xpath("//*[text()[contains(.,':')]]"):
             # If it is an exact match
-            if self.decoder(item.xpath("./text()")[0]
-                            .strip()) == "Data de Protocolo:":
+            if item.xpath("./text()")[0].strip() == "Data de Protocolo:":
                 # Get next sibiling's text
-                raw_date = self.decoder(
-                    item.getnext().xpath("text()")[0].strip())
+                raw_date = item.getnext().xpath("text()")[0].strip()
                 if raw_date != "":
                     self.data_protocolo = datetime \
                         .strptime(raw_date, "%d/%m/%Y").date()
-            if self.decoder(item.xpath("./text()")[0]
-                            .strip()) == "Órgão de Origem:":
-                self.orgao_origem = self.decoder(
-                    item.getnext().xpath("text()")[0].strip())
-            if self.decoder(item.xpath("./text()")[0].strip()) == "Origem:":
-                self.origem = self.decoder(
-                    item.getnext().xpath("text()")[0].strip())
-            if self.decoder(item.xpath("./text()")[0]
-                            .strip()) == "Número de Origem:":
-                nums = self.decoder(item.getnext().xpath("text()")[0])
+            if item.xpath("./text()")[0].strip() == "Órgão de Origem:":
+                self.orgao_origem = item.getnext().xpath("text()")[0].strip()
+            if item.xpath("./text()")[0].strip() == "Origem:":
+                self.origem = item.getnext().xpath("text()")[0].strip()
+            if item.xpath("./text()")[0].strip() == "Número de Origem:":
+                nums = item.getnext().xpath("text()")[0]
                 self.numeros_origem = re.sub(r"[\n\t\s]*", "", nums).split(",")
                 if(len(self.numeros_origem[0])) == 0:
                     self.numeros_origem = []
@@ -268,16 +257,16 @@ class ProcessScraper:
         return True
 
 
+# TODO: This is temporary
 if __name__ == "__main__":
     search_scraper = SearchScraper()
     # status = True
-    # # # Modes: 'max', 'min', 'code'
+    # # Modes: 'max', 'min', 'code'
     # while status:
     #     status = search_scraper.start(mode="max")
 
-    # # TODO: This is temporary
     search_scraper.step = 2
     search_scraper.start(mode="max")
 
-    # process_scraper = ProcessScraper()
-    # process_scraper.start()
+    process_scraper = ProcessScraper()
+    process_scraper.start()
