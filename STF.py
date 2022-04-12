@@ -254,18 +254,3 @@ class ProcessScraper:
                 future.result()
 
         return True
-
-
-# TODO: This is temporary
-if __name__ == "__main__":
-    search_scraper = SearchScraper()
-    # status = True
-    # # Modes: 'max', 'min', 'code'
-    # while status:
-    #     status = search_scraper.start(mode="max")
-
-    search_scraper.step = 2
-    search_scraper.start(mode="max")
-
-    process_scraper = ProcessScraper()
-    process_scraper.start()
